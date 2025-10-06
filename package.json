@@ -1,0 +1,16 @@
+{
+  "name": "indoor-navigation-app",
+  "version": "1.0.0",
+  "description": "Indoor Navigation Web Application for End Users",
+  "main": "src/main.jsx",
+  "type": "module",
+  "scripts": {
+    "start": "python -m http.server 3000",
+    "serve": "npx serve . -p 3000"
+  },
+  "dependencies": {
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "three": "^0.180.0"
+  }
+}
