@@ -1,0 +1,1115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GLTF Multi-Path Viewer with Grid Pathfinding</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            overflow: hidden;
+            display: flex;
+            background-color: #282c34;
+            color: #f1f1f1;
+        }
+        #sidebar {
+            width: 300px;
+            height: 100vh;
+            background-color: #21252b;
+            padding: 15px;
+            box-sizing: border-box;
+            overflow-y: auto;
+            border-right: 1px solid #3d424b;
+            display: flex;
+            flex-direction: column;
+        }
+        #viewer-container {
+            flex-grow: 1;
+            height: 100vh;
+        }
+        canvas {
+            display: block;
+        }
+        h3, h4 {
+            margin: 0 0 10px 0;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #3d424b;
+        }
+        .control-section {
+            margin-bottom: 20px;
+        }
+        .file-input-wrapper {
+            margin-bottom: 15px;
+        }
+        input[type="file"], input[type="range"], input[type="number"] {
+            display: none;
+        }
+        input[type="range"], input[type="number"] {
+            display: block;
+            width: 100%;
+            margin-bottom: 10px;
+        }
+        input[type="number"] {
+            background-color: #4f5b6f;
+            color: white;
+            padding: 8px 12px;
+            border-radius: 4px;
+            border: 1px solid #3d424b;
+        }
+        .file-input-label, button, select {
+            background-color: #4f5b6f;
+            color: white;
+            padding: 8px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            display: block;
+            text-align: center;
+            border: 1px solid #3d424b;
+            width: 100%;
+            box-sizing: border-box;
+            font-size: 14px;
+            margin-bottom: 10px;
+            appearance: none;
+            -webkit-appearance: none;
+        }
+        .file-input-label:hover, button:not(:disabled):hover, select:not(:disabled):hover {
+            background-color: #6a7991;
+        }
+        button:disabled, select:disabled {
+            background-color: #3a414c;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+        .hierarchy-item {
+            display: flex;
+            align-items: center;
+            padding: 4px 0;
+        }
+        .hierarchy-item label {
+            margin-left: 8px;
+            font-size: 0.9em;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .hierarchy-item input[type="checkbox"] {
+            width: 14px;
+            height: 14px;
+            cursor: pointer;
+        }
+        .hierarchy-item input[type="checkbox"]:first-of-type {
+            accent-color: #4f5b6f;
+        }
+        .hierarchy-item input[type="checkbox"]:nth-of-type(2) {
+            accent-color: #00aa00;
+        }
+        .hierarchy-children {
+            margin-left: 20px;
+            border-left: 1px solid #444;
+            padding-left: 10px;
+        }
+        .grid-controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .grid-controls button {
+            flex: 1;
+            min-width: 80px;
+        }
+        #status-message {
+            margin-top: auto;
+            padding: 8px;
+            background-color: #3a414c;
+            border-radius: 4px;
+            font-size: 0.9em;
+            text-align: center;
+            min-height: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div id="sidebar">
+        <h3>Controls & Hierarchy</h3>
+
+        <div class="control-section">
+            <div class="file-input-wrapper">
+                <label for="model-input" class="file-input-label">1. Load Model</label>
+                <input type="file" id="model-input" accept=".glb, .gltf">
+            </div>
+        </div>
+
+        <!-- Grid Controls -->
+        <div class="control-section" id="grid-controls" style="display: none;">
+            <h4>2. Grid System</h4>
+            <label>Grid Size:</label>
+            <input type="number" id="grid-size" value="20" min="5" max="100">
+            <label>Cell Size:</label>
+            <input type="number" id="cell-size" value="1" min="0.1" max="10" step="0.1">
+            <label>Grid Height:</label>
+            <input type="number" id="grid-height" value="0.1" min="0" max="10" step="0.1">
+            
+            <div class="grid-controls">
+                <button id="create-grid-btn">Create Grid</button>
+                <button id="toggle-grid-btn" style="display: none;">Hide Grid</button>
+            </div>
+            
+            <div class="grid-controls">
+                <button id="select-walkable-btn" style="display: none;">Mark Walkable</button>
+                <button id="select-blocked-btn" style="display: none;">Mark Blocked</button>
+                <button id="clear-selection-btn" style="display: none;">Clear All</button>
+            </div>
+            
+            <div class="grid-controls">
+                <button id="save-grid-btn" style="display: none;">Save Grid Data</button>
+                <button id="load-grid-btn" style="display: none;">Load Grid Data</button>
+            </div>
+            <input type="file" id="grid-file-input" accept=".json" style="display: none;">
+
+            <!-- Floor Management Controls -->
+            <div class="control-section" id="floor-controls" style="display: none;">
+                <h4>3. Floor Management</h4>
+                <label>Current Floor:</label>
+                <select id="floor-selector">
+                    <option value="0">Floor 1</option>
+                </select>
+                <div class="grid-controls">
+                    <button id="prev-floor-btn">Previous Floor</button>
+                    <button id="next-floor-btn">Next Floor</button>
+                </div>
+                <p id="floor-info" style="font-size: 0.9em; color: #aaa; margin: 5px 0;">No floors detected</p>
+            </div>
+
+            <!-- Grid Navigation Controls -->
+            <div class="control-section" id="grid-navigation" style="display: none;">
+                <h4>4. Grid Navigation</h4>
+                <div class="grid-controls">
+                    <button id="set-start-grid-btn">Set Start Cell</button>
+                    <button id="set-end-grid-btn">Set End Cell</button>
+                </div>
+                <button id="find-path-btn" style="display: none;">Find Path</button>
+            </div>
+        </div>
+
+
+        <div class="control-section">
+            <h4>Model Hierarchy</h4>
+            <div id="hierarchy-container">
+                <p>Load a model to see its layers.</p>
+            </div>
+        </div>
+
+        <p id="status-message">Load a model to begin.</p>
+    </div>
+    <div id="viewer-container"></div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+        // --- A* PATHFINDING ALGORITHM ---
+        class AStarPathfinder {
+            constructor(grid, gridSize) {
+                this.grid = grid;
+                this.gridSize = gridSize;
+            }
+
+            // Manhattan distance heuristic
+            heuristic(a, b) {
+                return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+            }
+
+            // Get valid neighbors for a grid position
+            getNeighbors(node) {
+                const neighbors = [];
+                const directions = [
+                    { x: 0, y: -1 }, // up
+                    { x: 1, y: 0 },  // right
+                    { x: 0, y: 1 },  // down
+                    { x: -1, y: 0 }  // left
+                ];
+
+                for (const dir of directions) {
+                    const newX = node.x + dir.x;
+                    const newY = node.y + dir.y;
+
+                    if (newX >= 0 && newX < this.gridSize && 
+                        newY >= 0 && newY < this.gridSize) {
+                        
+                        const key = `${newX},${newY}`;
+                        if (this.grid[key] === 'walkable') {
+                            neighbors.push({ x: newX, y: newY });
+                        }
+                    }
+                }
+                return neighbors;
+            }
+
+            // Find path using A* algorithm
+            findPath(start, end) {
+                const openSet = [];
+                const closedSet = new Set();
+                const gScore = {};
+                const fScore = {};
+                const cameFrom = {};
+
+                const startKey = `${start.x},${start.y}`;
+                const endKey = `${end.x},${end.y}`;
+
+                // Check if start and end are walkable
+                if (this.grid[startKey] !== 'walkable' || this.grid[endKey] !== 'walkable') {
+                    return []; // No path possible
+                }
+
+                openSet.push(start);
+                gScore[startKey] = 0;
+                fScore[startKey] = this.heuristic(start, end);
+
+                while (openSet.length > 0) {
+                    // Find node with lowest fScore
+                    let current = openSet[0];
+                    let currentIndex = 0;
+                    
+                    for (let i = 1; i < openSet.length; i++) {
+                        const key = `${openSet[i].x},${openSet[i].y}`;
+                        const currentKey = `${current.x},${current.y}`;
+                        if (fScore[key] < fScore[currentKey]) {
+                            current = openSet[i];
+                            currentIndex = i;
+                        }
+                    }
+
+                    openSet.splice(currentIndex, 1);
+                    const currentKey = `${current.x},${current.y}`;
+                    closedSet.add(currentKey);
+
+                    // Goal reached
+                    if (current.x === end.x && current.y === end.y) {
+                        const path = [];
+                        let temp = current;
+                        
+                        while (temp) {
+                            path.push(temp);
+                            const tempKey = `${temp.x},${temp.y}`;
+                            temp = cameFrom[tempKey];
+                        }
+                        
+                        return path.reverse();
+                    }
+
+                    // Check neighbors
+                    const neighbors = this.getNeighbors(current);
+                    
+                    for (const neighbor of neighbors) {
+                        const neighborKey = `${neighbor.x},${neighbor.y}`;
+                        
+                        if (closedSet.has(neighborKey)) {
+                            continue;
+                        }
+
+                        const tentativeGScore = gScore[currentKey] + 1;
+
+                        if (!openSet.some(node => node.x === neighbor.x && node.y === neighbor.y)) {
+                            openSet.push(neighbor);
+                        } else if (tentativeGScore >= (gScore[neighborKey] || Infinity)) {
+                            continue;
+                        }
+
+                        cameFrom[neighborKey] = current;
+                        gScore[neighborKey] = tentativeGScore;
+                        fScore[neighborKey] = gScore[neighborKey] + this.heuristic(neighbor, end);
+                    }
+                }
+
+                return []; // No path found
+            }
+        }
+
+        // --- SCENE SETUP ---
+        const container = document.getElementById('viewer-container');
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x282c34);
+        const camera = new THREE.PerspectiveCamera(75, container.clientWidth / container.clientHeight, 0.1, 1000);
+        camera.position.set(2, 2, 3);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(container.clientWidth, container.clientHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.outputColorSpace = THREE.SRGBColorSpace;
+        container.appendChild(renderer.domElement);
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        const ambientLight = new THREE.AmbientLight(0xffffff, 1.5);
+        scene.add(ambientLight);
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 2);
+        directionalLight.position.set(5, 10, 7.5);
+        scene.add(directionalLight);
+
+        // --- APPLICATION STATE ---
+        let currentModel = null;
+        let selectedObjects = []; // Track selected objects from hierarchy
+
+        // Grid system variables
+        let gridGroup = null;
+        let gridCells = [];
+        let gridData = {};
+        let gridVisible = true;
+        let selectionMode = 'none';
+        let pathfinder = null;
+        let currentGridSize = 20;
+        let currentCellSize = 1;
+        let currentGridHeight = 0.1;
+        let selectedObjectBounds = null; // Bounds of selected objects for grid positioning
+        let floorLevels = []; // Array of detected floor heights
+        let currentFloorIndex = 0; // Currently selected floor for pathfinding
+        let multiFloorGrids = []; // Store grids for each floor
+
+        // Grid navigation variables
+        let startGridCell = null;
+        let endGridCell = null;
+        let gridStartMarker = null;
+        let gridEndMarker = null;
+        let pathVisualization = null;
+
+        let gridPickMode = 'none'; // 'start-grid' or 'end-grid'
+        const clock = new THREE.Clock();
+
+        // --- LOADERS AND HELPERS ---
+        const gltfLoader = new GLTFLoader();
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+
+        // --- UI ELEMENTS ---
+        const hierarchyContainer = document.getElementById('hierarchy-container');
+        const gridControls = document.getElementById('grid-controls');
+        const statusMessage = document.getElementById('status-message');
+
+        // Grid UI elements
+        const gridSizeInput = document.getElementById('grid-size');
+        const cellSizeInput = document.getElementById('cell-size');
+        const gridHeightInput = document.getElementById('grid-height');
+        const createGridBtn = document.getElementById('create-grid-btn');
+        const toggleGridBtn = document.getElementById('toggle-grid-btn');
+        const selectWalkableBtn = document.getElementById('select-walkable-btn');
+        const selectBlockedBtn = document.getElementById('select-blocked-btn');
+        const clearSelectionBtn = document.getElementById('clear-selection-btn');
+        const saveGridBtn = document.getElementById('save-grid-btn');
+        const loadGridBtn = document.getElementById('load-grid-btn');
+        const gridFileInput = document.getElementById('grid-file-input');
+
+        // Floor management UI elements
+        const floorControls = document.getElementById('floor-controls');
+        const floorSelector = document.getElementById('floor-selector');
+        const prevFloorBtn = document.getElementById('prev-floor-btn');
+        const nextFloorBtn = document.getElementById('next-floor-btn');
+        const floorInfo = document.getElementById('floor-info');
+
+        // Grid navigation UI elements
+        const setStartGridBtn = document.getElementById('set-start-grid-btn');
+        const setEndGridBtn = document.getElementById('set-end-grid-btn');
+        const findPathBtn = document.getElementById('find-path-btn');
+
+        // --- EVENT LISTENERS ---
+        document.getElementById('model-input').addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+            const url = URL.createObjectURL(file);
+            loadModel(url);
+        });
+
+        // Grid event listeners
+        createGridBtn.addEventListener('click', createGrid);
+        toggleGridBtn.addEventListener('click', toggleGrid);
+        selectWalkableBtn.addEventListener('click', () => setSelectionMode('walkable'));
+        selectBlockedBtn.addEventListener('click', () => setSelectionMode('blocked'));
+        clearSelectionBtn.addEventListener('click', clearGridSelection);
+        saveGridBtn.addEventListener('click', saveGridData);
+        loadGridBtn.addEventListener('click', () => gridFileInput.click());
+        gridFileInput.addEventListener('change', loadGridData);
+
+        // Floor management event listeners
+        floorSelector.addEventListener('change', switchFloor);
+        prevFloorBtn.addEventListener('click', () => switchFloorByIndex(currentFloorIndex - 1));
+        nextFloorBtn.addEventListener('click', () => switchFloorByIndex(currentFloorIndex + 1));
+
+        // Grid navigation event listeners
+        setStartGridBtn.addEventListener('click', () => setGridPickMode('start-grid'));
+        setEndGridBtn.addEventListener('click', () => setGridPickMode('end-grid'));
+        findPathBtn.addEventListener('click', findGridPath);
+        renderer.domElement.addEventListener('pointerdown', onPointerDown, false);
+
+        // --- GRID PATHFINDING FUNCTIONS ---
+        function setGridPickMode(mode) {
+            gridPickMode = mode;
+            controls.enabled = false;
+            statusMessage.textContent = `Click on a grid cell to set the ${mode.replace('-grid', '')} position.`;
+        }
+
+        function findGridPath() {
+            if (!startGridCell || !endGridCell || !pathfinder) {
+                statusMessage.textContent = 'Please set both start and end positions first.';
+                return;
+            }
+
+            const path = pathfinder.findPath(startGridCell, endGridCell);
+            
+            if (path.length === 0) {
+                statusMessage.textContent = 'No path found! Make sure there are walkable cells connecting start and end.';
+                return;
+            }
+
+            // Convert grid path to world positions
+            const center = selectedObjectBounds.getCenter(new THREE.Vector3());
+            const currentFloorHeight = floorLevels[currentFloorIndex];
+            const worldPath = path.map(gridPos => {
+                const worldX = center.x + (gridPos.x - currentGridSize / 2) * currentCellSize;
+                const worldZ = center.z + (gridPos.y - currentGridSize / 2) * currentCellSize;
+                return new THREE.Vector3(worldX, currentFloorHeight + currentGridHeight + 0.2, worldZ);
+            });
+
+            // Visualize the path
+            visualizePath(worldPath);
+
+            // Start animation along the path
+            initiateGridPathAnimation(worldPath);
+
+            statusMessage.textContent = `Path found with ${path.length} steps. Animation started.`;
+        }
+
+        function visualizePath(worldPath) {
+            // Remove existing path visualization
+            if (pathVisualization) {
+                scene.remove(pathVisualization);
+            }
+
+            // Create path line
+            const pathGeometry = new THREE.BufferGeometry().setFromPoints(worldPath);
+            const pathMaterial = new THREE.LineBasicMaterial({ 
+                color: 0xffff00, 
+                linewidth: 3 
+            });
+            pathVisualization = new THREE.Line(pathGeometry, pathMaterial);
+            scene.add(pathVisualization);
+        }
+
+        function initiateGridPathAnimation(worldPath) {
+            if (dummyObject) scene.remove(dummyObject);
+
+            navigationPath = worldPath;
+            if (navigationPath.length < 2) {
+                statusMessage.textContent = 'Path too short to animate.';
+                return;
+            }
+
+            const dummyGeom = new THREE.ConeGeometry(0.2, 0.5, 8);
+            dummyGeom.rotateX(Math.PI / 2);
+            dummyObject = new THREE.Mesh(dummyGeom, new THREE.MeshStandardMaterial({ color: 0xff4444 }));
+            dummyObject.position.copy(navigationPath[0]);
+            scene.add(dummyObject);
+
+            pathIndex = 0;
+            pathProgress = 0;
+        }
+
+        // --- HELPER FUNCTIONS ---
+        function updateSelectedObjects() {
+            selectedObjects = [];
+            if (!currentModel) return;
+            
+            // Traverse the model and collect objects with grid checkboxes checked
+            currentModel.traverse((object) => {
+                if (object.type === 'Mesh' && object.userData.gridCheckbox && object.userData.gridCheckbox.checked) {
+                    selectedObjects.push(object);
+                }
+            });
+            
+            // Calculate bounds of selected objects
+            if (selectedObjects.length > 0) {
+                const box = new THREE.Box3();
+                selectedObjects.forEach(obj => {
+                    box.expandByObject(obj);
+                });
+                selectedObjectBounds = box;
+                
+                // Detect floor levels
+                detectFloorLevels();
+            } else {
+                selectedObjectBounds = null;
+                floorLevels = [];
+                updateFloorUI();
+            }
+            
+            // Update status message
+            if (selectedObjects.length > 0) {
+                statusMessage.textContent = `${selectedObjects.length} object(s) selected for grid generation. ${floorLevels.length} floor(s) detected.`;
+            } else {
+                statusMessage.textContent = 'No objects selected for grid generation. Check the grid checkboxes in hierarchy.';
+            }
+        }
+
+        function detectFloorLevels() {
+            if (selectedObjects.length === 0) {
+                floorLevels = [];
+                return;
+            }
+
+            const heights = new Set();
+            
+            // Collect all unique Y positions (heights) from selected objects
+            selectedObjects.forEach(obj => {
+                const box = new THREE.Box3().setFromObject(obj);
+                const minY = box.min.y;
+                const maxY = box.max.y;
+                
+                // Add both min and max heights, rounded to nearest 0.1
+                heights.add(Math.round(minY * 10) / 10);
+                heights.add(Math.round(maxY * 10) / 10);
+            });
+            
+            // Convert to sorted array
+            floorLevels = Array.from(heights).sort((a, b) => a - b);
+            
+            // Group nearby heights (within 0.5 units) as the same floor
+            const groupedFloors = [];
+            let currentGroup = [floorLevels[0]];
+            
+            for (let i = 1; i < floorLevels.length; i++) {
+                if (floorLevels[i] - currentGroup[currentGroup.length - 1] < 0.5) {
+                    currentGroup.push(floorLevels[i]);
+                } else {
+                    // Average the heights in the current group
+                    groupedFloors.push(currentGroup.reduce((a, b) => a + b) / currentGroup.length);
+                    currentGroup = [floorLevels[i]];
+                }
+            }
+            
+            // Add the last group
+            if (currentGroup.length > 0) {
+                groupedFloors.push(currentGroup.reduce((a, b) => a + b) / currentGroup.length);
+            }
+            
+            floorLevels = groupedFloors;
+            updateFloorUI();
+        }
+
+        function updateFloorUI() {
+            // Clear existing options
+            floorSelector.innerHTML = '';
+            
+            if (floorLevels.length === 0) {
+                floorSelector.innerHTML = '<option value="0">No floors detected</option>';
+                floorInfo.textContent = 'No floors detected';
+                return;
+            }
+            
+            // Add options for each floor
+            floorLevels.forEach((height, index) => {
+                const option = document.createElement('option');
+                option.value = index;
+                option.textContent = `Floor ${index + 1} (Y: ${height.toFixed(1)})`;
+                floorSelector.appendChild(option);
+            });
+            
+            // Update floor info
+            floorInfo.textContent = `${floorLevels.length} floor(s) detected. Heights: ${floorLevels.map(h => h.toFixed(1)).join(', ')}`;
+            
+            // Ensure current floor index is valid
+            if (currentFloorIndex >= floorLevels.length) {
+                currentFloorIndex = 0;
+            }
+            floorSelector.value = currentFloorIndex;
+        }
+
+        function switchFloor() {
+            currentFloorIndex = parseInt(floorSelector.value);
+            updateCurrentFloorGrid();
+        }
+
+        function switchFloorByIndex(index) {
+            if (index >= 0 && index < floorLevels.length) {
+                currentFloorIndex = index;
+                floorSelector.value = currentFloorIndex;
+                updateCurrentFloorGrid();
+            }
+        }
+
+        function updateCurrentFloorGrid() {
+            if (multiFloorGrids.length === 0) return;
+            
+            // Hide all floor grids
+            multiFloorGrids.forEach(floorGrid => {
+                if (floorGrid) {
+                    floorGrid.visible = false;
+                }
+            });
+            
+            // Show current floor grid
+            if (multiFloorGrids[currentFloorIndex]) {
+                multiFloorGrids[currentFloorIndex].visible = true;
+                gridGroup = multiFloorGrids[currentFloorIndex];
+                gridCells = gridGroup.children;
+            }
+            
+            statusMessage.textContent = `Switched to Floor ${currentFloorIndex + 1} (Y: ${floorLevels[currentFloorIndex].toFixed(1)})`;
+        }
+
+        // --- GRID FUNCTIONS ---
+        function createGrid() {
+            // Check if any objects are selected
+            if (selectedObjects.length === 0) {
+                statusMessage.textContent = 'Please select objects for grid generation by checking the grid checkboxes in the hierarchy.';
+                return;
+            }
+
+            // Check if floors are detected
+            if (floorLevels.length === 0) {
+                statusMessage.textContent = 'No floor levels detected. Please check your selected objects.';
+                return;
+            }
+
+            const gridSize = parseInt(gridSizeInput.value);
+            const cellSize = parseFloat(cellSizeInput.value);
+            const gridHeight = parseFloat(gridHeightInput.value);
+
+            // Store current values
+            currentGridSize = gridSize;
+            currentCellSize = cellSize;
+            currentGridHeight = gridHeight;
+
+            // Remove existing grids
+            multiFloorGrids.forEach(floorGrid => {
+                if (floorGrid) {
+                    scene.remove(floorGrid);
+                }
+            });
+            multiFloorGrids = [];
+
+            // Calculate grid positioning based on selected objects bounds
+            const center = selectedObjectBounds.getCenter(new THREE.Vector3());
+            const size = selectedObjectBounds.getSize(new THREE.Vector3());
+            
+            // Adjust grid size to fit the selected objects
+            const maxDimension = Math.max(size.x, size.z);
+            const adjustedCellSize = maxDimension / gridSize;
+            
+            // Update cell size if it's too small
+            if (adjustedCellSize > cellSize) {
+                currentCellSize = adjustedCellSize;
+            }
+
+            // Create grid geometry
+            const geometry = new THREE.PlaneGeometry(currentCellSize * 0.9, currentCellSize * 0.9);
+
+            // Create grids for each floor
+            floorLevels.forEach((floorHeight, floorIndex) => {
+                const floorGrid = new THREE.Group();
+                const floorGridData = {};
+                const floorGridCells = [];
+
+                // Create grid cells for this floor
+                for (let x = 0; x < gridSize; x++) {
+                    for (let z = 0; z < gridSize; z++) {
+                        const cell = new THREE.Mesh(geometry, getDefaultMaterial());
+                        
+                        // Position cell relative to selected objects center
+                        const posX = center.x + (x - gridSize / 2) * currentCellSize;
+                        const posZ = center.z + (z - gridSize / 2) * currentCellSize;
+                        cell.position.set(posX, floorHeight + gridHeight, posZ);
+                        cell.rotation.x = -Math.PI / 2;
+                        
+                        // Store grid coordinates and floor info
+                        cell.userData = { 
+                            gridX: x, 
+                            gridZ: z, 
+                            type: 'default',
+                            floorIndex: floorIndex,
+                            floorHeight: floorHeight
+                        };
+                        
+                        floorGrid.add(cell);
+                        floorGridCells.push(cell);
+                        floorGridData[`${x},${z}`] = 'default';
+                    }
+                }
+
+                // Hide all floors except the first one initially
+                floorGrid.visible = (floorIndex === 0);
+                scene.add(floorGrid);
+                multiFloorGrids.push(floorGrid);
+            });
+
+            // Set current grid to first floor
+            gridGroup = multiFloorGrids[0];
+            gridCells = gridGroup.children;
+            gridData = {};
+            
+            // Initialize pathfinder for current floor
+            if (gridCells.length > 0) {
+                // Rebuild grid data for current floor
+                gridCells.forEach(cell => {
+                    gridData[`${cell.userData.gridX},${cell.userData.gridZ}`] = cell.userData.type;
+                });
+                pathfinder = new AStarPathfinder(gridData, gridSize);
+            }
+            
+            // Show grid controls
+            toggleGridBtn.style.display = 'block';
+            selectWalkableBtn.style.display = 'block';
+            selectBlockedBtn.style.display = 'block';
+            clearSelectionBtn.style.display = 'block';
+            saveGridBtn.style.display = 'block';
+            loadGridBtn.style.display = 'block';
+            floorControls.style.display = 'block';
+            gridNavigation.style.display = 'block';
+
+            statusMessage.textContent = `Multi-floor grid created: ${gridSize}x${gridSize} cells on ${floorLevels.length} floor(s). Currently viewing Floor 1.`;
+        }
+
+        function getMaterialForType(type) {
+            const materials = {
+                'walkable': new THREE.MeshBasicMaterial({ 
+                    color: 0x00ff00, 
+                    transparent: true, 
+                    opacity: 0.6,
+                    side: THREE.DoubleSide 
+                }),
+                'blocked': new THREE.MeshBasicMaterial({ 
+                    color: 0xff0000, 
+                    transparent: true, 
+                    opacity: 0.6,
+                    side: THREE.DoubleSide 
+                }),
+                'default': getDefaultMaterial()
+            };
+            return materials[type];
+        }
+
+        function getDefaultMaterial() {
+            return new THREE.MeshBasicMaterial({ 
+                color: 0x666666, 
+                transparent: true, 
+                opacity: 0.1,
+                side: THREE.DoubleSide 
+            });
+        }
+
+        function toggleGrid() {
+            if (!gridGroup) return;
+            
+            gridVisible = !gridVisible;
+            gridGroup.visible = gridVisible;
+            toggleGridBtn.textContent = gridVisible ? 'Hide Grid' : 'Show Grid';
+        }
+
+        function setSelectionMode(mode) {
+            selectionMode = mode;
+            controls.enabled = false;
+            
+            // Update button states
+            selectWalkableBtn.style.backgroundColor = mode === 'walkable' ? '#00aa00' : '#4f5b6f';
+            selectBlockedBtn.style.backgroundColor = mode === 'blocked' ? '#aa0000' : '#4f5b6f';
+            
+            statusMessage.textContent = `Click grid cells to mark as ${mode}. Click anywhere else to exit selection mode.`;
+        }
+
+        function updateGridCell(cell, type) {
+            cell.material = getMaterialForType(type);
+            cell.userData.type = type;
+            gridData[`${cell.userData.gridX},${cell.userData.gridZ}`] = type;
+            
+            // Update pathfinder grid for current floor
+            if (pathfinder) {
+                pathfinder.grid = gridData;
+            }
+        }
+
+        function clearGridSelection() {
+            // Clear all floors
+            multiFloorGrids.forEach(floorGrid => {
+                if (floorGrid) {
+                    floorGrid.children.forEach(cell => {
+                        cell.material = getDefaultMaterial();
+                        cell.userData.type = 'default';
+                    });
+                }
+            });
+            
+            // Update current floor grid data
+            gridCells.forEach(cell => {
+                gridData[`${cell.userData.gridX},${cell.userData.gridZ}`] = 'default';
+            });
+            
+            // Clear markers and path
+            clearGridMarkers();
+            if (pathVisualization) {
+                scene.remove(pathVisualization);
+                pathVisualization = null;
+            }
+            
+            statusMessage.textContent = 'Grid selection cleared for all floors';
+        }
+
+        function clearGridMarkers() {
+            if (gridStartMarker) {
+                scene.remove(gridStartMarker);
+                gridStartMarker = null;
+            }
+            if (gridEndMarker) {
+                scene.remove(gridEndMarker);
+                gridEndMarker = null;
+            }
+            startGridCell = null;
+            endGridCell = null;
+            findPathBtn.style.display = 'none';
+        }
+
+        function saveGridData() {
+            const data = {
+                gridSize: currentGridSize,
+                cellSize: currentCellSize,
+                gridHeight: currentGridHeight,
+                gridData: gridData
+            };
+
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'grid-data.json';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+            statusMessage.textContent = 'Grid data saved';
+        }
+
+        function loadGridData(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const data = JSON.parse(e.target.result);
+                    
+                    // Update UI controls
+                    gridSizeInput.value = data.gridSize;
+                    cellSizeInput.value = data.cellSize;
+                    gridHeightInput.value = data.gridHeight;
+                    
+                    // Recreate grid
+                    createGrid();
+                    
+                    // Apply loaded data
+                    Object.entries(data.gridData).forEach(([key, type]) => {
+                        const [x, z] = key.split(',').map(n => parseInt(n));
+                        const cell = gridCells.find(c => 
+                            c.userData.gridX === x && c.userData.gridZ === z
+                        );
+                        if (cell) {
+                            updateGridCell(cell, type);
+                        }
+                    });
+
+                    statusMessage.textContent = 'Grid data loaded successfully';
+                } catch (error) {
+                    statusMessage.textContent = 'Error loading grid data';
+                    console.error('Error loading grid data:', error);
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        // --- CORE FUNCTIONS ---
+        function loadModel(url) {
+            cleanUp();
+            hierarchyContainer.innerHTML = '<p>Loading...</p>';
+            statusMessage.textContent = 'Loading model...';
+
+            gltfLoader.load(url, (gltf) => {
+                currentModel = gltf.scene;
+                scene.add(currentModel);
+
+                const box = new THREE.Box3().setFromObject(currentModel);
+                const center = box.getCenter(new THREE.Vector3());
+                camera.position.set(center.x, center.y + 2, center.z + 5);
+                controls.target.copy(center);
+                controls.update();
+
+                hierarchyContainer.innerHTML = '';
+                buildHierarchy(currentModel, hierarchyContainer);
+
+                // Update selected objects and show grid controls
+                updateSelectedObjects();
+                gridControls.style.display = 'block';
+
+            }, undefined, (error) => {
+                console.error('Error loading model:', error);
+                statusMessage.textContent = 'Error loading model.';
+            });
+        }
+
+        function buildHierarchy(object, parentElement) {
+            const itemDiv = document.createElement('div');
+            itemDiv.className = 'hierarchy-item';
+            
+            // Visibility checkbox
+            const visibilityCheckbox = document.createElement('input');
+            visibilityCheckbox.type = 'checkbox';
+            visibilityCheckbox.checked = object.visible;
+            visibilityCheckbox.title = 'Toggle visibility';
+            visibilityCheckbox.addEventListener('change', () => { 
+                object.visible = visibilityCheckbox.checked;
+            });
+            
+            // Grid generation checkbox (only for mesh objects)
+            const gridCheckbox = document.createElement('input');
+            gridCheckbox.type = 'checkbox';
+            gridCheckbox.title = 'Include in grid generation';
+            gridCheckbox.style.marginLeft = '10px';
+            gridCheckbox.addEventListener('change', () => { 
+                updateSelectedObjects();
+            });
+            
+            // Store grid checkbox reference on the object
+            object.userData.gridCheckbox = gridCheckbox;
+            
+            const label = document.createElement('label');
+            label.textContent = object.name || `[${object.type}]`;
+            label.style.marginLeft = '8px';
+            
+            itemDiv.appendChild(visibilityCheckbox);
+            if (object.type === 'Mesh') {
+                itemDiv.appendChild(gridCheckbox);
+            }
+            itemDiv.appendChild(label);
+            parentElement.appendChild(itemDiv);
+            
+            if (object.children?.length > 0) {
+                const childrenContainer = document.createElement('div');
+                childrenContainer.className = 'hierarchy-children';
+                parentElement.appendChild(childrenContainer);
+                object.children.forEach(child => buildHierarchy(child, childrenContainer));
+            }
+        }
+
+        function onPointerDown(event) {
+            const rect = renderer.domElement.getBoundingClientRect();
+            mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+
+            // Handle grid cell selection for pathfinding
+            if (gridPickMode !== 'none' && gridGroup) {
+                const gridIntersects = raycaster.intersectObjects(gridCells);
+                if (gridIntersects.length > 0) {
+                    const cell = gridIntersects[0].object;
+                    const gridPos = { x: cell.userData.gridX, y: cell.userData.gridZ };
+                    
+                    if (gridPickMode === 'start-grid') {
+                        startGridCell = gridPos;
+                        if (!gridStartMarker) {
+                            gridStartMarker = createMarker(0x00ff00);
+                            scene.add(gridStartMarker);
+                        }
+                        gridStartMarker.position.copy(cell.position);
+                        gridStartMarker.position.y += 0.3;
+                        statusMessage.textContent = 'Start position set. Now set end position.';
+                    } else if (gridPickMode === 'end-grid') {
+                        endGridCell = gridPos;
+                        if (!gridEndMarker) {
+                            gridEndMarker = createMarker(0xff0000);
+                            scene.add(gridEndMarker);
+                        }
+                        gridEndMarker.position.copy(cell.position);
+                        gridEndMarker.position.y += 0.3;
+                        statusMessage.textContent = 'End position set. Click "Find Path" to calculate route.';
+                    }
+                    
+                    if (startGridCell && endGridCell) {
+                        findPathBtn.style.display = 'block';
+                    }
+                    
+                    gridPickMode = 'none';
+                    controls.enabled = true;
+                    return;
+                }
+            }
+
+            // Handle regular grid cell marking
+            if (selectionMode !== 'none' && gridGroup) {
+                const gridIntersects = raycaster.intersectObjects(gridCells);
+                if (gridIntersects.length > 0) {
+                    const cell = gridIntersects[0].object;
+                    updateGridCell(cell, selectionMode);
+                    return;
+                } else {
+                    // Clicked outside grid, exit selection mode
+                    selectionMode = 'none';
+                    controls.enabled = true;
+                    selectWalkableBtn.style.backgroundColor = '#4f5b6f';
+                    selectBlockedBtn.style.backgroundColor = '#4f5b6f';
+                    statusMessage.textContent = 'Selection mode disabled';
+                }
+            }
+
+            controls.enabled = true;
+        }
+
+        function createMarker(color) {
+            const geometry = new THREE.SphereGeometry(0.15, 16, 8);
+            const material = new THREE.MeshBasicMaterial({ color: color });
+            return new THREE.Mesh(geometry, material);
+        }
+
+        function cleanUp() {
+            if (currentModel) scene.remove(currentModel);
+            clearGridMarkers();
+            if (pathVisualization) {
+                scene.remove(pathVisualization);
+                pathVisualization = null;
+            }
+            
+            // Clean up multi-floor grids
+            multiFloorGrids.forEach(floorGrid => {
+                if (floorGrid) {
+                    scene.remove(floorGrid);
+                }
+            });
+            multiFloorGrids = [];
+            floorLevels = [];
+            currentFloorIndex = 0;
+            
+            currentModel = null;
+            gridControls.style.display = 'none';
+            floorControls.style.display = 'none';
+            hierarchyContainer.innerHTML = '<p>Load a model to see its layers.</p>';
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = container.clientWidth / container.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(container.clientWidth, container.clientHeight);
+        });
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const deltaTime = clock.getDelta();
+            controls.update();
+            renderer.render(scene, camera);
+        }
+        animate();
+    </script>
+</body>
+</html>
